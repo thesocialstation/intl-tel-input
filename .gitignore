@@ -9,6 +9,7 @@
 /.grunt/
 /tmp/
 .DS_Store
+.idea
 
 # these files are now auto-generated
 /src/img/
