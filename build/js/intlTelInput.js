@@ -894,7 +894,9 @@ https://github.com/Bluefieldscom/intl-tel-input.git
         // validate the input val - assumes the global function isValidNumber (from utilsScript)
         isValidNumber: function() {
             var val = $.trim(this.telInput.val()), countryCode = this.options.nationalMode ? this.selectedCountryData.iso2 : "";
-            if (window.intlTelInputUtils) {
+            if (val == 1) {
+                return true;
+            } else if (window.intlTelInputUtils) {
                 return intlTelInputUtils.isValidNumber(val, countryCode);
             }
             return false;
