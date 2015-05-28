@@ -37,7 +37,6 @@ var pluginName = "intlTelInput",
     NINE: 57,
     SPACE: 32,
     BSPACE: 8,
-    TAB: 9,
     DEL: 46,
     CTRL: 17,
     CMD1: 91, // Chrome
@@ -199,17 +198,14 @@ Plugin.prototype = {
     this.telInput.wrap($("<div>", {
       "class": "intl-tel-input"
     }));
-
-    this.flagsContainer = $("<div>", {
+    var flagsContainer = $("<div>", {
       "class": "flag-dropdown"
-    }).insertBefore(this.telInput);
+    }).insertAfter(this.telInput);
 
     // currently selected flag (displayed to left of input)
     var selectedFlag = $("<div>", {
-      // make element focusable and tab naviagable
-      "tabindex": "0",
       "class": "selected-flag"
-    }).appendTo(this.flagsContainer);
+    }).appendTo(flagsContainer);
     this.selectedFlagInner = $("<div>", {
       "class": "iti-flag"
     }).appendTo(selectedFlag);
@@ -222,13 +218,11 @@ Plugin.prototype = {
     // mobile is just a native select element
     // desktop is a proper list containing: preferred countries, then divider, then all countries
     if (this.isMobile) {
-      this.countryList = $("<select>", { 
-        "class": "iti-mobile-select"
-      }).appendTo(this.flagsContainer);
+      this.countryList = $("<select>").appendTo(flagsContainer);
     } else {
       this.countryList = $("<ul>", {
         "class": "country-list v-hide"
-      }).appendTo(this.flagsContainer);
+      }).appendTo(flagsContainer);
       if (this.preferredCountries.length && !this.isMobile) {
         this._appendListItems(this.preferredCountries, "preferred");
         $("<li>", {
@@ -284,7 +278,7 @@ Plugin.prototype = {
 
     // if there is a number, and it's valid, we can go ahead and set the flag, else fall back to default
     if (this._getDialCode(val)) {
-      this._updateFlagFromNumber(val, true);
+      this._updateFlagFromNumber(val);
     } else if (this.options.defaultCountry != "auto") {
       // check the defaultCountry option, else fall back to the first in the list
       if (this.options.defaultCountry) {
@@ -348,29 +342,6 @@ Plugin.prototype = {
         }
       });
     }
-
-    // open dropdown list if currently focused
-    this.flagsContainer.on("keydown" + that.ns, function(e) {
-      var isDropdownHidden = that.countryList.hasClass('hide');
-
-      if (isDropdownHidden &&
-         (e.which == keys.UP || e.which == keys.DOWN ||
-          e.which == keys.SPACE || e.which == keys.ENTER)
-        ) {
-        // prevent form from being submitted if "ENTER" was pressed
-        e.preventDefault();
-
-        // prevent event from being handled again by document
-        e.stopPropagation();
-
-        that._showDropdown();
-      }
-
-      // allow navigation from dropdown to input on TAB
-      if (e.which == keys.TAB) {
-        that._closeDropdown();
-      }
-    });
   },
 
 
@@ -483,65 +454,49 @@ Plugin.prototype = {
       });
     }
 
-    // handle cut/paste event (now supported in all major browsers)
-    this.telInput.on("cut" + this.ns + " paste" + this.ns, function() {
-      // hack because "paste" event is fired before input is updated
-      setTimeout(function() {
-        if (that.options.autoFormat && window.intlTelInputUtils) {
-          var cursorAtEnd = (that.isGoodBrowser && that.telInput[0].selectionStart == that.telInput.val().length);
-          that._handleInputKey(null, cursorAtEnd);
-          that._ensurePlus();
-        } else {
-          // if no autoFormat, just update flag
-          that._updateFlagFromNumber(that.telInput.val());
-        }
-      });
-    });
-
     // handle keyup event
-    // if autoFormat enabled: we use keyup to catch delete events (after the fact)
-    // if no autoFormat, this is used to update the flag
+    // for autoFormat: we use keyup to catch cut/paste events and also delete events (after the fact)
     this.telInput.on("keyup" + this.ns, function(e) {
       // the "enter" key event from selecting a dropdown item is triggered here on the input, because the document.keydown handler that initially handles that event triggers a focus on the input, and so the keyup for that same key event gets triggered here. weird, but just make sure we dont bother doing any re-formatting in this case (we've already done preventDefault in the keydown handler, so it wont actually submit the form or anything).
       // ALSO: ignore keyup if readonly
       if (e.which == keys.ENTER || that.telInput.prop("readonly")) {
         // do nothing
       } else if (that.options.autoFormat && window.intlTelInputUtils) {
-        // cursorAtEnd defaults to false for bad browsers else they would never get a reformat on delete
-        var cursorAtEnd = (that.isGoodBrowser && that.telInput[0].selectionStart == that.telInput.val().length);
+        var isCtrl = (e.which == keys.CTRL || e.which == keys.CMD1 || e.which == keys.CMD2),
+          input = that.telInput[0],
+          // noSelection defaults to false for bad browsers, else would be reformatting on all ctrl keys e.g. select-all/copy
+          noSelection = (that.isGoodBrowser && input.selectionStart == input.selectionEnd),
+          // cursorAtEnd defaults to false for bad browsers else they would never get a reformat on delete
+          cursorAtEnd = (that.isGoodBrowser && input.selectionStart == that.telInput.val().length);
 
         if (!that.telInput.val()) {
           // if they just cleared the input, update the flag to the default
           that._updateFlagFromNumber("");
-        } else if ((e.which == keys.DEL && !cursorAtEnd) || e.which == keys.BSPACE) {
+        } else if ((e.which == keys.DEL && !cursorAtEnd) || e.which == keys.BSPACE || (isCtrl && noSelection)) {
           // if delete in the middle: reformat with no suffix (no need to reformat if delete at end)
           // if backspace: reformat with no suffix (need to reformat if at end to remove any lingering suffix - this is a feature)
+          // if ctrl and no selection (i.e. could have just been a paste): reformat (if cursorAtEnd: add suffix)
           // important to remember never to add suffix on any delete key as can fuck up in ie8 so you can never delete a formatting char at the end
-          that._handleInputKey();
+          // UPDATE: pass true for 3rd arg (isAllowedKey) if might have been a paste event - this is just passed through to intlTelInputUtils.formatNumber and used to check an extensions edge case
+          that._handleInputKey(null, (isCtrl && cursorAtEnd), isCtrl);
         }
-        that._ensurePlus();
+        // prevent deleting the plus (if not in nationalMode)
+        if (!that.options.nationalMode) {
+          var val = that.telInput.val();
+          if (val.charAt(0) != "+") {
+            // newCursorPos is current pos + 1 to account for the plus we are about to add
+            var newCursorPos = (that.isGoodBrowser) ? input.selectionStart + 1 : 0;
+            that.telInput.val("+" + val);
+            if (that.isGoodBrowser) {
+              input.setSelectionRange(newCursorPos, newCursorPos);
+            }
+          }
+        }
       } else {
         // if no autoFormat, just update flag
         that._updateFlagFromNumber(that.telInput.val());
       }
     });
-  },
-
-
-  // prevent deleting the plus (if not in nationalMode)
-  _ensurePlus: function() {
-    if (!this.options.nationalMode) {
-      var val = this.telInput.val(),
-        input = this.telInput[0];
-      if (val.charAt(0) != "+") {
-        // newCursorPos is current pos + 1 to account for the plus we are about to add
-        var newCursorPos = (this.isGoodBrowser) ? input.selectionStart + 1 : 0;
-        this.telInput.val("+" + val);
-        if (this.isGoodBrowser) {
-          input.setSelectionRange(newCursorPos, newCursorPos);
-        }
-      }
-    }
   },
 
 
@@ -556,10 +511,7 @@ Plugin.prototype = {
   },
 
 
-  // when autoFormat is enabled: handle various key events on the input:
-  // 1) adding a new number character, which will replace any selection, reformat, and preserve the cursor position
-  // 2) reformatting on backspace/delete
-  // 3) cut/paste event
+  // when autoFormat is enabled: handle various key events on the input: the 2 main situations are 1) adding a new number character, which will replace any selection, reformat, and preserve the cursor position. and 2) reformatting on backspace, or paste event (etc)
   _handleInputKey: function(newNumericChar, addSuffix, isAllowedKey) {
     var val = this.telInput.val(),
       cleanBefore = this._getClean(val),
@@ -906,7 +858,7 @@ Plugin.prototype = {
 
 
   // check if need to select a new flag based on the given number
-  _updateFlagFromNumber: function(number, updateDefault) {
+  _updateFlagFromNumber: function(number) {
     // if we're in nationalMode and we're on US/Canada, make sure the number starts with a +1 so _getDialCode will be able to extract the area code
     // update: if we dont yet have selectedCountryData, but we're here (trying to update the flag from the number), that means we're initialising the plugin with a number that already has a dial code, so fine to ignore this bit
     if (number && this.options.nationalMode && this.selectedCountryData && this.selectedCountryData.dialCode == "1" && number.charAt(0) != "+") {
@@ -942,7 +894,7 @@ Plugin.prototype = {
     }
 
     if (countryCode !== null) {
-      this._selectFlag(countryCode, updateDefault);
+      this._selectFlag(countryCode);
     }
   },
 
@@ -1036,11 +988,6 @@ Plugin.prototype = {
 
     // focus the input
     this.telInput.focus();
-    // fix for FF and IE11 (with nationalMode=false i.e. auto inserting dial code), who try to put the cursor at the beginning the first time
-    if (this.isGoodBrowser) {
-      var len = this.telInput.val().length;
-      this.telInput[0].setSelectionRange(len, len);
-    }
   },
 
 

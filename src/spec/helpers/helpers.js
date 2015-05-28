@@ -7,7 +7,6 @@ var input,
     DOWN: 40,
     ENTER: 13,
     ESC: 27,
-    SPACE: 32,
     BACKSPACE: 8,
     DELETE: 46,
     CTRL: 17
@@ -112,8 +111,4 @@ var triggerKeyOnBody = function(key) {
   $("body").trigger(getKeyEvent(key, "keydown"));
   $("body").trigger(getKeyEvent(key, "keypress"));
   $("body").trigger(getKeyEvent(key, "keyup"));
-};
-
-var triggerKeyOnFlagsContainerElement = function(key) {
-  getFlagsContainerElement().trigger(getKeyEvent(key, "keydown"));
 };
